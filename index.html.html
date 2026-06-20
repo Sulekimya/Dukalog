@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Duka Log — Sales & Customer Tracker</title>
+<style>
+  :root {
+    --ink: #1A2421;
+    --paper: #F7F5F0;
+    --card: #FFFFFF;
+    --line: #DDD8CC;
+    --green: #1D7A5C;
+    --green-dark: #145C45;
+    --green-light: #E5F2EC;
+    --amber: #B8732E;
+    --amber-light: #FBF0E4;
+    --red: #B8453C;
+    --muted: #6B6F6A;
+    --radius: 10px;
+    --mono: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    background: var(--green-dark);
+    color: white;
+    padding: 14px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .topbar h1 {
+    font-size: 17px;
+    margin: 0;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .topbar .status {
+    font-size: 12px;
+    opacity: 0.85;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #6FE3B4; display: inline-block; }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    background: var(--card);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 49px;
+    z-index: 40;
+    overflow-x: auto;
+  }
+  .tab {
+    padding: 12px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .tab.active { color: var(--green-dark); border-bottom-color: var(--green); }
+
+  .view { display: none; padding: 18px; max-width: 720px; margin: 0 auto; animation: fadeIn 0.15s ease; }
+  .view.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ── Cards / sections ── */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 0 0 14px 0;
+    font-weight: 700;
+  }
+
+  label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 5px;
+  }
+  .field { margin-bottom: 14px; }
+  .field .hint { font-size: 11px; color: var(--muted); margin-top: 3px; }
+
+  input, select {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 16px;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: inherit;
+  }
+  input:focus, select:focus {
+    outline: none;
+    border-color: var(--green);
+    background: white;
+  }
+  input[readonly] { background: #EFEDE6; color: var(--muted); }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* Searchable product dropdown */
+  .product-search { position: relative; }
+  .product-results {
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    background: white;
+    border: 1.5px solid var(--green);
+    border-radius: 8px;
+    margin-top: 2px;
+    max-height: 220px;
+    overflow-y: auto;
+    z-index: 30;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    display: none;
+  }
+  .product-results.show { display: block; }
+  .product-row {
+    padding: 10px 12px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    font-size: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .product-row:last-child { border-bottom: none; }
+  .product-row:hover, .product-row.highlighted { background: var(--green-light); }
+  .product-row .pname { font-weight: 600; }
+  .product-row .pmeta { color: var(--muted); font-size: 12px; }
+  .product-row .stockwarn { color: var(--red); font-weight: 600; }
+
+  /* ── Totals strip ── */
+  .totals {
+    background: var(--green-dark);
+    color: white;
+    border-radius: var(--radius);
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .totals .label { font-size: 12px; opacity: 0.8; text-transform: uppercase; letter-spacing: 0.04em; }
+  .totals .amount { font-size: 28px; font-weight: 700; font-family: var(--mono); }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 13px 18px;
+    border-radius: 9px;
+    font-size: 14.5px;
+    font-weight: 700;
+    border: none;
+    cursor: pointer;
+    width: 100%;
+  }
+  .btn-primary { background: var(--green); color: white; }
+  .btn-primary:active { background: var(--green-dark); }
+  .btn-primary:disabled { background: #BBC4BE; cursor: not-allowed; }
+  .btn-ghost { background: transparent; border: 1.5px solid var(--line); color: var(--ink); }
+  .btn-row { display: flex; gap: 10px; }
+  .btn-row .btn { width: auto; flex: 1; }
+  .btn-sm { padding: 8px 12px; font-size: 12.5px; width: auto; }
+  .btn-danger { background: var(--red); color: white; }
+
+  /* ── Records table ── */
+  .toolbar { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .toolbar select, .toolbar input { width: auto; flex: 1; min-width: 120px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 8px 10px;
+    border-bottom: 1.5px solid var(--line);
+    letter-spacing: 0.03em;
+  }
+  tbody td { padding: 10px; border-bottom: 1px solid var(--line); }
+  tbody tr:hover { background: var(--green-light); }
+  .badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 5px;
+    text-transform: uppercase;
+  }
+  .badge-new { background: var(--amber-light); color: var(--amber); }
+  .badge-returning { background: var(--green-light); color: var(--green-dark); }
+  .scroll-x { overflow-x: auto; }
+  .del-btn { background: none; border: none; color: var(--red); cursor: pointer; font-size: 16px; padding: 4px; }
+
+  /* ── Dashboard stat grid ── */
+  .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 14px; }
+  .stat {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px;
+  }
+  .stat .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+  .stat .stat-value { font-size: 22px; font-weight: 700; font-family: var(--mono); }
+  .stat .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12.5px; }
+  .bar-row .bar-label { width: 110px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { flex: 1; background: var(--green-light); border-radius: 5px; height: 18px; position: relative; overflow: hidden; }
+  .bar-fill { background: var(--green); height: 100%; border-radius: 5px; }
+  .bar-val { font-size: 11px; color: var(--muted); width: 60px; text-align: right; flex-shrink: 0; font-family: var(--mono); }
+
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .empty-state .icon { font-size: 32px; margin-bottom: 8px; }
+
+  .toast {
+    position: fixed;
+    bottom: 20px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--ink);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 13.5px;
+    font-weight: 600;
+    opacity: 0;
+    transition: all 0.25s ease;
+    pointer-events: none;
+    z-index: 100;
+    max-width: 90%;
+    text-align: center;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.error { background: var(--red); }
+
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+    display: none; align-items: center; justify-content: center; z-index: 200; padding: 20px;
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: white; border-radius: 14px; padding: 22px;
+    max-width: 380px; width: 100%;
+  }
+  .modal h3 { margin: 0 0 8px; font-size: 16px; }
+  .modal p { font-size: 13.5px; color: var(--muted); margin: 0 0 18px; line-height: 1.5; }
+
+  @media (max-width: 480px) {
+    .row2 { grid-template-columns: 1fr; }
+    .totals .amount { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>🧾 Duka Log</h1>
+  <div class="status"><span class="dot"></span><span id="recordCount">0 records</span></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-view="sale">New Sale</div>
+  <div class="tab" data-view="records">Records</div>
+  <div class="tab" data-view="dashboard">Dashboard</div>
+  <div class="tab" data-view="products">Products</div>
+</div>
+
+<!-- ══════════════ NEW SALE VIEW ══════════════ -->
+<div class="view active" id="view-sale">
+
+  <div class="card">
+    <h2>Item</h2>
+    <div class="field product-search">
+      <label>Product</label>
+      <input type="text" id="productInput" placeholder="Type to search products..." autocomplete="off">
+      <div class="product-results" id="productResults"></div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Quantity</label>
+        <input type="number" id="qtyInput" min="1" value="1" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label>Unit Price (KSh)</label>
+        <input type="number" id="priceInput" readonly placeholder="Select product">
+      </div>
+    </div>
+    <div class="field">
+      <label>Discount (KSh, optional)</label>
+      <input type="number" id="discountInput" min="0" placeholder="0" inputmode="numeric">
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Customer & Payment</h2>
+    <div class="row2">
+      <div class="field">
+        <label>Payment Method</label>
+        <select id="paymentInput">
+          <option value="M-Pesa">M-Pesa</option>
+          <option value="Cash">Cash</option>
+          <option value="Bank Transfer">Bank Transfer</option>
+          <option value="Card">Card</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Customer Phone (optional)</label>
+        <input type="tel" id="phoneInput" placeholder="07XX XXX XXX" inputmode="tel">
+        <div class="hint" id="customerHint"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="totals">
+    <div>
+      <div class="label">Total Sale</div>
+      <div class="amount" id="totalDisplay">KSh 0</div>
+    </div>
+    <div style="text-align:right;">
+      <div class="label">Date / Time (auto)</div>
+      <div style="font-size:12.5px; font-family: var(--mono);" id="dateTimeDisplay">—</div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" id="completeSaleBtn" disabled>Complete Sale</button>
+</div>
+
+<!-- ══════════════ RECORDS VIEW ══════════════ -->
+<div class="view" id="view-records">
+  <div class="toolbar">
+    <select id="filterProduct"><option value="">All products</option></select>
+    <select id="filterPayment">
+      <option value="">All payments</option>
+      <option value="M-Pesa">M-Pesa</option>
+      <option value="Cash">Cash</option>
+      <option value="Bank Transfer">Bank Transfer</option>
+      <option value="Card">Card</option>
+    </select>
+    <input type="date" id="filterDate">
+  </div>
+  <div class="btn-row" style="margin-bottom:14px;">
+    <button class="btn btn-primary btn-sm" id="exportCsvBtn">⬇ Export CSV</button>
+    <button class="btn btn-primary btn-sm" id="exportJsonBtn">⬇ Export JSON</button>
+    <button class="btn btn-ghost btn-sm" id="clearFiltersBtn">Clear filters</button>
+  </div>
+  <div class="card">
+    <div class="scroll-x">
+      <table id="recordsTable">
+        <thead>
+          <tr>
+            <th>Date</th><th>Time</th><th>Product</th><th>Qty</th><th>Total</th>
+            <th>Payment</th><th>Customer</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="recordsBody"></tbody>
+      </table>
+    </div>
+    <div class="empty-state" id="recordsEmpty" style="display:none;">
+      <div class="icon">🗒️</div>
+      No sales recorded yet — go to "New Sale" to add your first one.
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ DASHBOARD VIEW ══════════════ -->
+<div class="view" id="view-dashboard">
+  <div class="stat-grid">
+    <div class="stat"><div class="stat-label">Total Revenue</div><div class="stat-value" id="statRevenue">KSh 0</div></div>
+    <div class="stat"><div class="stat-label">Total Profit</div><div class="stat-value" id="statProfit">KSh 0</div></div>
+    <div class="stat"><div class="stat-label">Transactions</div><div class="stat-value" id="statTxns">0</div></div>
+    <div class="stat"><div class="stat-label">Avg Order Value</div><div class="stat-value" id="statAOV">KSh 0</div></div>
+  </div>
+  <div class="stat-grid">
+    <div class="stat"><div class="stat-label">Returning Customers</div><div class="stat-value" id="statReturning">0</div><div class="stat-sub">of customers with phone on file</div></div>
+    <div class="stat"><div class="stat-label">Peak Hour</div><div class="stat-value" id="statPeakHour">—</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Best-selling Products</h2>
+    <div id="topProducts"></div>
+  </div>
+
+  <div class="card">
+    <h2>Sales by Day of Week</h2>
+    <div id="dayOfWeekChart"></div>
+  </div>
+
+  <div class="card">
+    <h2>Payment Method Split</h2>
+    <div id="paymentChart"></div>
+  </div>
+</div>
+
+<!-- ══════════════ PRODUCTS VIEW ══════════════ -->
+<div class="view" id="view-products">
+  <div class="card">
+    <h2>Add / Edit Product</h2>
+    <div class="field">
+      <label>Product Name</label>
+      <input type="text" id="newProdName" placeholder="e.g. Cooking Oil 1L">
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Category</label>
+        <input type="text" id="newProdCategory" placeholder="e.g. Groceries">
+      </div>
+      <div class="field">
+        <label>Stock Quantity</label>
+        <input type="number" id="newProdStock" placeholder="0" inputmode="numeric">
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Cost Price (KSh)</label>
+        <input type="number" id="newProdCost" placeholder="0" inputmode="numeric">
+      </div>
+      <div class="field">
+        <label>Selling Price (KSh)</label>
+        <input type="number" id="newProdPrice" placeholder="0" inputmode="numeric">
+      </div>
+    </div>
+    <button class="btn btn-primary" id="addProductBtn">Add Product</button>
+  </div>
+
+  <div class="card">
+    <h2>Product List</h2>
+    <div class="scroll-x">
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Cost</th><th>Price</th><th>Stock</th><th></th></tr></thead>
+        <tbody id="productsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal-backdrop" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">Delete this?</h3>
+    <p id="confirmText">This action can't be undone.</p>
+    <div class="btn-row">
+      <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+      <button class="btn btn-danger" id="confirmOk">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════
+   STORAGE LAYER — IndexedDB
+   Tables: products, customers, transactions, transaction_items
+   ════════════════════════════════════════════════════════ */
+const DB_NAME = 'dukalog';
+const DB_VERSION = 1;
+let db;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains('products')) {
+        const store = d.createObjectStore('products', { keyPath: 'product_id', autoIncrement: true });
+        store.createIndex('by_name', 'product_name', { unique: false });
+      }
+      if (!d.objectStoreNames.contains('customers')) {
+        const store = d.createObjectStore('customers', { keyPath: 'phone_number' });
+      }
+      if (!d.objectStoreNames.contains('transactions')) {
+        const store = d.createObjectStore('transactions', { keyPath: 'transaction_id', autoIncrement: true });
+        store.createIndex('by_date', 'date', { unique: false });
+      }
+    };
+    req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+    req.onerror = (e) => reject(e);
+  });
+}
+
+function tx(storeNames, mode = 'readonly') {
+  return db.transaction(storeNames, mode);
+}
+
+function getAll(storeName) {
+  return new Promise((resolve, reject) => {
+    const req = tx(storeName).objectStore(storeName).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = (e) => reject(e);
+  });
+}
+
+function put(storeName, value) {
+  return new Promise((resolve, reject) => {
+    const t = tx(storeName, 'readwrite');
+    const req = t.objectStore(storeName).put(value);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = (e) => reject(e);
+  });
+}
+
+function deleteRecord(storeName, key) {
+  return new Promise((resolve, reject) => {
+    const t = tx(storeName, 'readwrite');
+    const req = t.objectStore(storeName).delete(key);
+    req.onsuccess = () => resolve();
+    req.onerror = (e) => reject(e);
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   STATE
+   ════════════════════════════════════════════════════════ */
+let products = [];
+let transactions = [];
+let customers = [];
+let selectedProduct = null;
+
+const SEED_PRODUCTS = [
+  { product_name: 'Cooking Oil 1L', category: 'Groceries', cost_price: 280, selling_price: 350, stock_quantity: 40 },
+  { product_name: 'Maize Flour 2kg', category: 'Groceries', cost_price: 150, selling_price: 190, stock_quantity: 60 },
+  { product_name: 'Sugar 1kg', category: 'Groceries', cost_price: 130, selling_price: 160, stock_quantity: 50 },
+  { product_name: 'Bread (White)', category: 'Bakery', cost_price: 55, selling_price: 70, stock_quantity: 25 },
+  { product_name: 'Milk 500ml', category: 'Dairy', cost_price: 45, selling_price: 60, stock_quantity: 35 },
+  { product_name: 'Soap Bar', category: 'Household', cost_price: 40, selling_price: 60, stock_quantity: 30 },
+  { product_name: 'Airtime Scratch Card', category: 'Other', cost_price: 95, selling_price: 100, stock_quantity: 100 },
+];
+
+/* ════════════════════════════════════════════════════════
+   INIT
+   ════════════════════════════════════════════════════════ */
+async function init() {
+  if (!('indexedDB' in window)) {
+    showStorageError('This browser does not support local storage. Please open this file in Chrome (not a Facebook/WhatsApp in-app browser) or update your browser.');
+    return;
+  }
+
+  try {
+    await openDB();
+  } catch (err) {
+    showStorageError('Could not open local storage. If you opened this file from WhatsApp or another app, tap the menu (⋮) and choose "Open in browser" / "Open in Chrome", then try again.');
+    return;
+  }
+
+  try {
+    products = await getAll('products');
+    if (products.length === 0) {
+      for (const p of SEED_PRODUCTS) await put('products', p);
+      products = await getAll('products');
+    }
+    transactions = await getAll('transactions');
+    customers = await getAll('customers');
+  } catch (err) {
+    showStorageError('Local storage failed to load. Your device may be in private/incognito mode, which blocks storage. Try opening this file in a normal browser tab.');
+    return;
+  }
+
+  populateFilterProductOptions();
+  renderRecords();
+  renderDashboard();
+  renderProductsList();
+  updateRecordCount();
+  setDateTimeNow();
+  setInterval(setDateTimeNow, 30000);
+}
+
+function showStorageError(message) {
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:var(--red);color:white;padding:14px 18px;font-size:13.5px;font-weight:600;z-index:9999;text-align:center;line-height:1.5;';
+  banner.textContent = message;
+  document.body.prepend(banner);
+}
+
+function updateRecordCount() {
+  document.getElementById('recordCount').textContent = `${transactions.length} record${transactions.length === 1 ? '' : 's'}`;
+}
+
+function setDateTimeNow() {
+  const now = new Date();
+  document.getElementById('dateTimeDisplay').textContent =
+    now.toLocaleDateString('en-GB') + '  ' + now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+/* ════════════════════════════════════════════════════════
+   TABS
+   ════════════════════════════════════════════════════════ */
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('view-' + tab.dataset.view).classList.add('active');
+    if (tab.dataset.view === 'dashboard') renderDashboard();
+    if (tab.dataset.view === 'records') renderRecords();
+  });
+});
+
+/* ════════════════════════════════════════════════════════
+   PRODUCT SEARCH / SELECT
+   ════════════════════════════════════════════════════════ */
+const productInput = document.getElementById('productInput');
+const productResults = document.getElementById('productResults');
+
+productInput.addEventListener('input', () => {
+  const q = productInput.value.trim().toLowerCase();
+  selectedProduct = null;
+  document.getElementById('priceInput').value = '';
+  if (!q) { productResults.classList.remove('show'); updateTotal(); return; }
+  const matches = products.filter(p => p.product_name.toLowerCase().includes(q));
+  renderProductResults(matches);
+});
+
+productInput.addEventListener('focus', () => {
+  if (productInput.value.trim()) {
+    const q = productInput.value.trim().toLowerCase();
+    renderProductResults(products.filter(p => p.product_name.toLowerCase().includes(q)));
+  }
+});
+
+document.addEventListener('pointerdown', (e) => {
+  if (!e.target.closest('.product-search')) productResults.classList.remove('show');
+});
+
+function renderProductResults(matches) {
+  if (matches.length === 0) {
+    productResults.innerHTML = `<div class="product-row"><span class="pmeta">No products found</span></div>`;
+    productResults.classList.add('show');
+    return;
+  }
+  productResults.innerHTML = matches.map(p => `
+    <div class="product-row" data-id="${p.product_id}">
+      <div>
+        <div class="pname">${escapeHtml(p.product_name)}</div>
+        <div class="pmeta">${escapeHtml(p.category || '')}</div>
+      </div>
+      <div class="pmeta ${p.stock_quantity <= 5 ? 'stockwarn' : ''}">
+        KSh ${p.selling_price} · stock ${p.stock_quantity}
+      </div>
+    </div>
+  `).join('');
+  productResults.classList.add('show');
+  productResults.querySelectorAll('.product-row[data-id]').forEach(row => {
+    // pointerdown (not click) so the tap registers before the input's
+    // blur event or the document-level outside-click listener can close
+    // the dropdown first. This is the fix for Android Chrome where a
+    // touch tap blurs the text input before a 'click' would have fired.
+    row.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      selectProduct(parseInt(row.dataset.id));
+    });
+  });
+}
+
+function selectProduct(id) {
+  selectedProduct = products.find(p => p.product_id === id);
+  productInput.value = selectedProduct.product_name;
+  document.getElementById('priceInput').value = selectedProduct.selling_price;
+  productResults.classList.remove('show');
+  updateTotal();
+}
+
+/* ════════════════════════════════════════════════════════
+   SALE TOTAL + PHONE LOOKUP
+   ════════════════════════════════════════════════════════ */
+['qtyInput', 'discountInput'].forEach(id => {
+  document.getElementById(id).addEventListener('input', updateTotal);
+});
+
+function updateTotal() {
+  const qty = parseFloat(document.getElementById('qtyInput').value) || 0;
+  const price = parseFloat(document.getElementById('priceInput').value) || 0;
+  const discount = parseFloat(document.getElementById('discountInput').value) || 0;
+  const total = Math.max(0, (qty * price) - discount);
+  document.getElementById('totalDisplay').textContent = `KSh ${total.toLocaleString()}`;
+  document.getElementById('completeSaleBtn').disabled = !(selectedProduct && qty > 0);
+}
+
+const phoneInput = document.getElementById('phoneInput');
+phoneInput.addEventListener('input', () => {
+  const phone = phoneInput.value.trim();
+  const hint = document.getElementById('customerHint');
+  if (!phone) { hint.textContent = ''; return; }
+  const existing = customers.find(c => c.phone_number === phone);
+  if (existing) {
+    const pastCount = transactions.filter(t => t.customer_phone === phone).length;
+    hint.textContent = `✓ Returning customer — ${pastCount} past purchase${pastCount === 1 ? '' : 's'}`;
+    hint.style.color = 'var(--green-dark)';
+  } else {
+    hint.textContent = 'New customer';
+    hint.style.color = 'var(--amber)';
+  }
+});
+
+/* ════════════════════════════════════════════════════════
+   COMPLETE SALE
+   ════════════════════════════════════════════════════════ */
+document.getElementById('completeSaleBtn').addEventListener('click', async () => {
+  if (!selectedProduct) return;
+  const qty = parseInt(document.getElementById('qtyInput').value) || 0;
+  const price = selectedProduct.selling_price;
+  const discount = parseFloat(document.getElementById('discountInput').value) || 0;
+  const payment = document.getElementById('paymentInput').value;
+  const phone = phoneInput.value.trim();
+  const now = new Date();
+
+  if (qty > selectedProduct.stock_quantity) {
+    showToast(`Only ${selectedProduct.stock_quantity} in stock`, true);
+    return;
+  }
+
+  const total = Math.max(0, (qty * price) - discount);
+  const cost = selectedProduct.cost_price * qty;
+  const profit = total - cost;
+
+  // Customer record (new vs returning)
+  let customerType = 'Walk-in';
+  if (phone) {
+    let existing = customers.find(c => c.phone_number === phone);
+    if (existing) {
+      customerType = 'Returning';
+    } else {
+      customerType = 'New';
+      await put('customers', { phone_number: phone, first_purchase_date: now.toISOString().slice(0, 10) });
+      customers = await getAll('customers');
+    }
+  }
+
+  const transaction = {
+    date: now.toISOString().slice(0, 10),
+    time: now.toTimeString().slice(0, 5),
+    day_of_week: now.toLocaleDateString('en-US', { weekday: 'long' }),
+    month: now.toLocaleDateString('en-US', { month: 'long' }),
+    product_id: selectedProduct.product_id,
+    product_name: selectedProduct.product_name,
+    quantity: qty,
+    unit_price: price,
+    discount: discount,
+    total_amount: total,
+    cost_total: cost,
+    profit: profit,
+    payment_method: payment,
+    customer_phone: phone || null,
+    customer_type: customerType,
+    created_at: now.toISOString(),
+  };
+
+  await put('transactions', transaction);
+
+  // Update stock
+  selectedProduct.stock_quantity -= qty;
+  await put('products', selectedProduct);
+
+  // Refresh state
+  transactions = await getAll('transactions');
+  products = await getAll('products');
+
+  showToast(`Sale recorded — KSh ${total.toLocaleString()}`);
+  resetSaleForm();
+  updateRecordCount();
+  renderProductsList();
+  populateFilterProductOptions();
+});
+
+function resetSaleForm() {
+  productInput.value = '';
+  document.getElementById('priceInput').value = '';
+  document.getElementById('qtyInput').value = 1;
+  document.getElementById('discountInput').value = '';
+  phoneInput.value = '';
+  document.getElementById('customerHint').textContent = '';
+  selectedProduct = null;
+  updateTotal();
+  productInput.focus();
+}
+
+/* ════════════════════════════════════════════════════════
+   RECORDS VIEW
+   ════════════════════════════════════════════════════════ */
+function populateFilterProductOptions() {
+  const sel = document.getElementById('filterProduct');
+  const current = sel.value;
+  const names = [...new Set(products.map(p => p.product_name))].sort();
+  sel.innerHTML = '<option value="">All products</option>' + names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  sel.value = current;
+}
+
+['filterProduct', 'filterPayment', 'filterDate'].forEach(id => {
+  document.getElementById(id).addEventListener('change', renderRecords);
+});
+document.getElementById('clearFiltersBtn').addEventListener('click', () => {
+  document.getElementById('filterProduct').value = '';
+  document.getElementById('filterPayment').value = '';
+  document.getElementById('filterDate').value = '';
+  renderRecords();
+});
+
+function getFilteredTransactions() {
+  const fProduct = document.getElementById('filterProduct').value;
+  const fPayment = document.getElementById('filterPayment').value;
+  const fDate = document.getElementById('filterDate').value;
+  return transactions
+    .filter(t => !fProduct || t.product_name === fProduct)
+    .filter(t => !fPayment || t.payment_method === fPayment)
+    .filter(t => !fDate || t.date === fDate)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+}
+
+function renderRecords() {
+  const rows = getFilteredTransactions();
+  const tbody = document.getElementById('recordsBody');
+  document.getElementById('recordsEmpty').style.display = rows.length ? 'none' : 'block';
+  tbody.innerHTML = rows.map(t => `
+    <tr>
+      <td>${t.date}</td>
+      <td>${t.time}</td>
+      <td>${escapeHtml(t.product_name)} ×${t.quantity}</td>
+      <td>${t.quantity}</td>
+      <td>KSh ${t.total_amount.toLocaleString()}</td>
+      <td>${t.payment_method}</td>
+      <td>
+        ${t.customer_phone ? escapeHtml(t.customer_phone) : '<span style="color:var(--muted)">—</span>'}
+        ${t.customer_phone ? `<span class="badge ${t.customer_type === 'Returning' ? 'badge-returning' : 'badge-new'}">${t.customer_type}</span>` : ''}
+      </td>
+      <td><button class="del-btn" data-id="${t.transaction_id}" title="Delete">✕</button></td>
+    </tr>
+  `).join('');
+  tbody.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', () => confirmDeleteTransaction(parseInt(btn.dataset.id)));
+  });
+}
+
+function confirmDeleteTransaction(id) {
+  showConfirm('Delete this sale?', 'This will permanently remove the record. This can\'t be undone.', async () => {
+    await deleteRecord('transactions', id);
+    transactions = await getAll('transactions');
+    renderRecords();
+    renderDashboard();
+    updateRecordCount();
+    showToast('Record deleted');
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   EXPORT — CSV & JSON
+   ════════════════════════════════════════════════════════ */
+document.getElementById('exportCsvBtn').addEventListener('click', () => {
+  const rows = getFilteredTransactions();
+  if (!rows.length) { showToast('No records to export', true); return; }
+  const headers = ['transaction_id','date','time','day_of_week','month','product_name','quantity','unit_price','discount','total_amount','cost_total','profit','payment_method','customer_phone','customer_type'];
+  const csvRows = [headers.join(',')];
+  rows.forEach(t => {
+    csvRows.push(headers.map(h => {
+      let v = t[h] ?? '';
+      if (typeof v === 'string' && v.includes(',')) v = `"${v}"`;
+      return v;
+    }).join(','));
+  });
+  downloadFile(csvRows.join('\n'), `dukalog_sales_${todayStr()}.csv`, 'text/csv');
+  showToast(`Exported ${rows.length} records to CSV`);
+});
+
+document.getElementById('exportJsonBtn').addEventListener('click', () => {
+  const rows = getFilteredTransactions();
+  if (!rows.length) { showToast('No records to export', true); return; }
+  downloadFile(JSON.stringify(rows, null, 2), `dukalog_sales_${todayStr()}.json`, 'application/json');
+  showToast(`Exported ${rows.length} records to JSON`);
+});
+
+function downloadFile(content, filename, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+/* ════════════════════════════════════════════════════════
+   DASHBOARD — generated analytics
+   ════════════════════════════════════════════════════════ */
+function renderDashboard() {
+  if (!transactions.length) {
+    document.getElementById('statRevenue').textContent = 'KSh 0';
+    document.getElementById('statProfit').textContent = 'KSh 0';
+    document.getElementById('statTxns').textContent = '0';
+    document.getElementById('statAOV').textContent = 'KSh 0';
+    document.getElementById('statReturning').textContent = '0';
+    document.getElementById('statPeakHour').textContent = '—';
+    document.getElementById('topProducts').innerHTML = '<div class="empty-state">No sales yet</div>';
+    document.getElementById('dayOfWeekChart').innerHTML = '';
+    document.getElementById('paymentChart').innerHTML = '';
+    return;
+  }
+
+  const revenue = transactions.reduce((s, t) => s + t.total_amount, 0);
+  const profit = transactions.reduce((s, t) => s + t.profit, 0);
+  const aov = revenue / transactions.length;
+  const returningCount = transactions.filter(t => t.customer_type === 'Returning').length;
+
+  document.getElementById('statRevenue').textContent = `KSh ${Math.round(revenue).toLocaleString()}`;
+  document.getElementById('statProfit').textContent = `KSh ${Math.round(profit).toLocaleString()}`;
+  document.getElementById('statTxns').textContent = transactions.length;
+  document.getElementById('statAOV').textContent = `KSh ${Math.round(aov).toLocaleString()}`;
+  document.getElementById('statReturning').textContent = returningCount;
+
+  // Peak hour
+  const hourCounts = {};
+  transactions.forEach(t => {
+    const hr = parseInt(t.time.split(':')[0]);
+    hourCounts[hr] = (hourCounts[hr] || 0) + 1;
+  });
+  const peakHr = Object.entries(hourCounts).sort((a, b) => b[1] - a[1])[0];
+  if (peakHr) {
+    const h = parseInt(peakHr[0]);
+    const label = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+    document.getElementById('statPeakHour').textContent = label;
+  }
+
+  // Best-selling products
+  const prodTotals = {};
+  transactions.forEach(t => {
+    prodTotals[t.product_name] = (prodTotals[t.product_name] || 0) + t.quantity;
+  });
+  const sortedProds = Object.entries(prodTotals).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const maxQty = sortedProds[0]?.[1] || 1;
+  document.getElementById('topProducts').innerHTML = sortedProds.map(([name, qty]) => `
+    <div class="bar-row">
+      <div class="bar-label">${escapeHtml(name)}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(qty / maxQty * 100)}%"></div></div>
+      <div class="bar-val">${qty} sold</div>
+    </div>
+  `).join('');
+
+  // Day of week
+  const dowOrder = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const dowCounts = {};
+  dowOrder.forEach(d => dowCounts[d] = 0);
+  transactions.forEach(t => { dowCounts[t.day_of_week] = (dowCounts[t.day_of_week] || 0) + 1; });
+  const maxDow = Math.max(...Object.values(dowCounts), 1);
+  document.getElementById('dayOfWeekChart').innerHTML = dowOrder.map(d => `
+    <div class="bar-row">
+      <div class="bar-label">${d}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(dowCounts[d] / maxDow * 100)}%"></div></div>
+      <div class="bar-val">${dowCounts[d]}</div>
+    </div>
+  `).join('');
+
+  // Payment split
+  const payCounts = {};
+  transactions.forEach(t => { payCounts[t.payment_method] = (payCounts[t.payment_method] || 0) + 1; });
+  const maxPay = Math.max(...Object.values(payCounts), 1);
+  document.getElementById('paymentChart').innerHTML = Object.entries(payCounts).sort((a,b) => b[1]-a[1]).map(([method, count]) => `
+    <div class="bar-row">
+      <div class="bar-label">${method}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(count / maxPay * 100)}%"></div></div>
+      <div class="bar-val">${count}</div>
+    </div>
+  `).join('');
+}
+
+/* ════════════════════════════════════════════════════════
+   PRODUCTS MANAGEMENT
+   ════════════════════════════════════════════════════════ */
+document.getElementById('addProductBtn').addEventListener('click', async () => {
+  const nameField = document.getElementById('newProdName');
+  const priceField = document.getElementById('newProdPrice');
+  const name = nameField.value.trim();
+  const category = document.getElementById('newProdCategory').value.trim();
+  const cost = parseFloat(document.getElementById('newProdCost').value) || 0;
+  const price = parseFloat(priceField.value) || 0;
+  const stock = parseInt(document.getElementById('newProdStock').value) || 0;
+
+  if (!name) {
+    showToast('Product name is required', true);
+    nameField.focus();
+    return;
+  }
+  if (price <= 0) {
+    showToast('Selling price must be more than 0', true);
+    priceField.focus();
+    return;
+  }
+
+  try {
+    await put('products', { product_name: name, category, cost_price: cost, selling_price: price, stock_quantity: stock });
+    products = await getAll('products');
+  } catch (err) {
+    showToast('Could not save product — storage error. Try reopening the app in Chrome.', true);
+    console.error('Add product failed:', err);
+    return;
+  }
+
+  renderProductsList();
+  populateFilterProductOptions();
+  ['newProdName','newProdCategory','newProdCost','newProdPrice','newProdStock'].forEach(id => document.getElementById(id).value = '');
+  showToast(`"${name}" added to products`);
+});
+
+function renderProductsList() {
+  const tbody = document.getElementById('productsBody');
+  tbody.innerHTML = products.sort((a,b) => a.product_name.localeCompare(b.product_name)).map(p => `
+    <tr>
+      <td>${escapeHtml(p.product_name)}</td>
+      <td>${escapeHtml(p.category || '—')}</td>
+      <td>KSh ${p.cost_price}</td>
+      <td>KSh ${p.selling_price}</td>
+      <td style="${p.stock_quantity <= 5 ? 'color:var(--red);font-weight:700;' : ''}">${p.stock_quantity}</td>
+      <td><button class="del-btn" data-id="${p.product_id}" title="Delete">✕</button></td>
+    </tr>
+  `).join('');
+  tbody.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', () => confirmDeleteProduct(parseInt(btn.dataset.id)));
+  });
+}
+
+function confirmDeleteProduct(id) {
+  const p = products.find(p => p.product_id === id);
+  showConfirm(`Delete "${p.product_name}"?`, 'This removes it from the product list. Past sales records are unaffected.', async () => {
+    await deleteRecord('products', id);
+    products = await getAll('products');
+    renderProductsList();
+    populateFilterProductOptions();
+    showToast('Product deleted');
+  });
+}
+
+/* ════════════════════════════════════════════════════════
+   UTILITIES — toast, confirm modal, escaping
+   ════════════════════════════════════════════════════════ */
+function showToast(msg, isError = false) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => toast.classList.remove('show'), 2600);
+}
+
+let confirmCallback = null;
+function showConfirm(title, text, onConfirm) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmText').textContent = text;
+  confirmCallback = onConfirm;
+  document.getElementById('confirmModal').classList.add('show');
+}
+document.getElementById('confirmCancel').addEventListener('click', () => {
+  document.getElementById('confirmModal').classList.remove('show');
+  confirmCallback = null;
+});
+document.getElementById('confirmOk').addEventListener('click', () => {
+  if (confirmCallback) confirmCallback();
+  document.getElementById('confirmModal').classList.remove('show');
+  confirmCallback = null;
+});
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str ?? '';
+  return div.innerHTML;
+}
+
+/* ════════════════════════════════════════════════════════
+   GO
+   ════════════════════════════════════════════════════════ */
+init();
+</script>
+</body>
+</html>
