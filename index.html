@@ -282,6 +282,23 @@
     .row2 { grid-template-columns: 1fr; }
     .totals .amount { font-size: 22px; }
   }
+
+  .cart-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .cart-row:last-child { border-bottom: none; }
+  .cart-row .cart-name { font-weight: 600; font-size: 13.5px; }
+  .cart-row .cart-meta { font-size: 12px; color: var(--muted); }
+  .cart-row .cart-amount { font-weight: 700; font-family: var(--mono); font-size: 13.5px; margin-right: 10px; }
+  .cart-subtotal {
+    display: flex; justify-content: space-between;
+    padding-top: 10px; margin-top: 4px;
+    font-size: 13px; font-weight: 700; color: var(--green-dark);
+  }
 </style>
 </head>
 <body>
@@ -302,7 +319,7 @@
 <div class="view active" id="view-sale">
 
   <div class="card">
-    <h2>Item</h2>
+    <h2>Add item</h2>
     <div class="field product-search">
       <label>Product</label>
       <input type="text" id="productInput" placeholder="Type to search products..." autocomplete="off">
@@ -318,10 +335,12 @@
         <input type="number" id="priceInput" readonly placeholder="Select product">
       </div>
     </div>
-    <div class="field">
-      <label>Discount (KSh, optional)</label>
-      <input type="number" id="discountInput" min="0" placeholder="0" inputmode="numeric">
-    </div>
+    <button class="btn btn-ghost" id="addToCartBtn" disabled>+ Add to sale</button>
+  </div>
+
+  <div class="card" id="cartCard" style="display:none;">
+    <h2>Items in this sale</h2>
+    <div id="cartList"></div>
   </div>
 
   <div class="card">
@@ -341,6 +360,10 @@
         <input type="tel" id="phoneInput" placeholder="07XX XXX XXX" inputmode="tel">
         <div class="hint" id="customerHint"></div>
       </div>
+    </div>
+    <div class="field">
+      <label>Discount on total sale (KSh, optional)</label>
+      <input type="number" id="discountInput" min="0" placeholder="0" inputmode="numeric">
     </div>
   </div>
 
@@ -485,7 +508,7 @@
    Tables: products, customers, transactions, transaction_items
    ════════════════════════════════════════════════════════ */
 const DB_NAME = 'dukalog';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 let db;
 
 function openDB() {
@@ -504,6 +527,14 @@ function openDB() {
         const store = d.createObjectStore('transactions', { keyPath: 'transaction_id', autoIncrement: true });
         store.createIndex('by_date', 'date', { unique: false });
       }
+      // transaction_items: one row per product within a transaction.
+      // This is what lets a single till visit hold multiple products
+      // while filtering and best-seller stats still work per-product.
+      if (!d.objectStoreNames.contains('transaction_items')) {
+        const store = d.createObjectStore('transaction_items', { keyPath: 'item_id', autoIncrement: true });
+        store.createIndex('by_transaction', 'transaction_id', { unique: false });
+        store.createIndex('by_product_name', 'product_name', { unique: false });
+      }
     };
     req.onsuccess = (e) => { db = e.target.result; resolve(db); };
     req.onerror = (e) => reject(e);
@@ -517,6 +548,14 @@ function tx(storeNames, mode = 'readonly') {
 function getAll(storeName) {
   return new Promise((resolve, reject) => {
     const req = tx(storeName).objectStore(storeName).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = (e) => reject(e);
+  });
+}
+
+function getByIndex(storeName, indexName, value) {
+  return new Promise((resolve, reject) => {
+    const req = tx(storeName).objectStore(storeName).index(indexName).getAll(value);
     req.onsuccess = () => resolve(req.result);
     req.onerror = (e) => reject(e);
   });
@@ -545,8 +584,10 @@ function deleteRecord(storeName, key) {
    ════════════════════════════════════════════════════════ */
 let products = [];
 let transactions = [];
+let transactionItems = [];
 let customers = [];
 let selectedProduct = null;
+let cart = []; // items added to the current sale before checkout
 
 const SEED_PRODUCTS = [
   { product_name: 'Cooking Oil 1L', category: 'Groceries', cost_price: 280, selling_price: 350, stock_quantity: 40 },
@@ -581,6 +622,7 @@ async function init() {
       products = await getAll('products');
     }
     transactions = await getAll('transactions');
+    transactionItems = await getAll('transaction_items');
     customers = await getAll('customers');
   } catch (err) {
     showStorageError('Local storage failed to load. Your device may be in private/incognito mode, which blocks storage. Try opening this file in a normal browser tab.');
@@ -688,23 +730,109 @@ function selectProduct(id) {
   productInput.value = selectedProduct.product_name;
   document.getElementById('priceInput').value = selectedProduct.selling_price;
   productResults.classList.remove('show');
+  updateAddToCartState();
+}
+
+/* ════════════════════════════════════════════════════════
+   CART — items added before checkout
+   ════════════════════════════════════════════════════════ */
+document.getElementById('qtyInput').addEventListener('input', updateAddToCartState);
+
+function updateAddToCartState() {
+  const qty = parseFloat(document.getElementById('qtyInput').value) || 0;
+  document.getElementById('addToCartBtn').disabled = !(selectedProduct && qty > 0);
+}
+
+document.getElementById('addToCartBtn').addEventListener('click', () => {
+  if (!selectedProduct) return;
+  const qty = parseInt(document.getElementById('qtyInput').value) || 0;
+
+  const alreadyInCart = cart.reduce((s, c) => c.product_id === selectedProduct.product_id ? s + c.quantity : s, 0);
+  if (qty + alreadyInCart > selectedProduct.stock_quantity) {
+    showToast(`Only ${selectedProduct.stock_quantity} in stock${alreadyInCart ? ` (${alreadyInCart} already in this sale)` : ''}`, true);
+    return;
+  }
+
+  const existing = cart.find(c => c.product_id === selectedProduct.product_id);
+  if (existing) {
+    existing.quantity += qty;
+  } else {
+    cart.push({
+      product_id: selectedProduct.product_id,
+      product_name: selectedProduct.product_name,
+      quantity: qty,
+      unit_price: selectedProduct.selling_price,
+      cost_price: selectedProduct.cost_price,
+    });
+  }
+
+  showToast(`Added ${selectedProduct.product_name} ×${qty}`);
+  clearProductPicker();
+  renderCart();
   updateTotal();
+});
+
+function clearProductPicker() {
+  productInput.value = '';
+  document.getElementById('priceInput').value = '';
+  document.getElementById('qtyInput').value = 1;
+  selectedProduct = null;
+  document.getElementById('addToCartBtn').disabled = true;
+  productInput.focus();
+}
+
+function renderCart() {
+  const card = document.getElementById('cartCard');
+  const list = document.getElementById('cartList');
+
+  if (cart.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = 'block';
+
+  const subtotal = cart.reduce((s, c) => s + (c.quantity * c.unit_price), 0);
+
+  list.innerHTML = cart.map((c, i) => `
+    <div class="cart-row">
+      <div>
+        <div class="cart-name">${escapeHtml(c.product_name)}</div>
+        <div class="cart-meta">${c.quantity} × KSh ${c.unit_price.toLocaleString()}</div>
+      </div>
+      <div style="display:flex; align-items:center;">
+        <span class="cart-amount">KSh ${(c.quantity * c.unit_price).toLocaleString()}</span>
+        <button class="del-btn" data-idx="${i}" title="Remove">✕</button>
+      </div>
+    </div>
+  `).join('') + `
+    <div class="cart-subtotal">
+      <span>Subtotal</span><span>KSh ${subtotal.toLocaleString()}</span>
+    </div>
+  `;
+
+  list.querySelectorAll('.del-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      cart.splice(parseInt(btn.dataset.idx), 1);
+      renderCart();
+      updateTotal();
+    });
+  });
 }
 
 /* ════════════════════════════════════════════════════════
    SALE TOTAL + PHONE LOOKUP
    ════════════════════════════════════════════════════════ */
-['qtyInput', 'discountInput'].forEach(id => {
-  document.getElementById(id).addEventListener('input', updateTotal);
-});
+document.getElementById('discountInput').addEventListener('input', updateTotal);
+
+function cartSubtotal() {
+  return cart.reduce((s, c) => s + (c.quantity * c.unit_price), 0);
+}
 
 function updateTotal() {
-  const qty = parseFloat(document.getElementById('qtyInput').value) || 0;
-  const price = parseFloat(document.getElementById('priceInput').value) || 0;
   const discount = parseFloat(document.getElementById('discountInput').value) || 0;
-  const total = Math.max(0, (qty * price) - discount);
+  const total = Math.max(0, cartSubtotal() - discount);
   document.getElementById('totalDisplay').textContent = `KSh ${total.toLocaleString()}`;
-  document.getElementById('completeSaleBtn').disabled = !(selectedProduct && qty > 0);
+  document.getElementById('completeSaleBtn').disabled = cart.length === 0;
 }
 
 const phoneInput = document.getElementById('phoneInput');
@@ -724,25 +852,32 @@ phoneInput.addEventListener('input', () => {
 });
 
 /* ════════════════════════════════════════════════════════
-   COMPLETE SALE
+   COMPLETE SALE — writes one transaction + N transaction_items
    ════════════════════════════════════════════════════════ */
 document.getElementById('completeSaleBtn').addEventListener('click', async () => {
-  if (!selectedProduct) return;
-  const qty = parseInt(document.getElementById('qtyInput').value) || 0;
-  const price = selectedProduct.selling_price;
+  if (cart.length === 0) return;
+
   const discount = parseFloat(document.getElementById('discountInput').value) || 0;
   const payment = document.getElementById('paymentInput').value;
   const phone = phoneInput.value.trim();
   const now = new Date();
 
-  if (qty > selectedProduct.stock_quantity) {
-    showToast(`Only ${selectedProduct.stock_quantity} in stock`, true);
-    return;
+  // Final stock check across the whole cart (covers stock changed mid-sale)
+  for (const item of cart) {
+    const p = products.find(p => p.product_id === item.product_id);
+    if (!p || item.quantity > p.stock_quantity) {
+      showToast(`${item.product_name}: only ${p ? p.stock_quantity : 0} in stock`, true);
+      return;
+    }
   }
 
-  const total = Math.max(0, (qty * price) - discount);
-  const cost = selectedProduct.cost_price * qty;
-  const profit = total - cost;
+  const subtotal = cartSubtotal();
+  const total = Math.max(0, subtotal - discount);
+  // Discount is spread proportionally across items so per-item profit stays accurate
+  const discountRatio = subtotal > 0 ? discount / subtotal : 0;
+
+  const costTotal = cart.reduce((s, c) => s + (c.quantity * c.cost_price), 0);
+  const profitTotal = total - costTotal;
 
   // Customer record (new vs returning)
   let customerType = 'Walk-in';
@@ -757,36 +892,65 @@ document.getElementById('completeSaleBtn').addEventListener('click', async () =>
     }
   }
 
-  const transaction = {
-    date: now.toISOString().slice(0, 10),
-    time: now.toTimeString().slice(0, 5),
-    day_of_week: now.toLocaleDateString('en-US', { weekday: 'long' }),
-    month: now.toLocaleDateString('en-US', { month: 'long' }),
-    product_id: selectedProduct.product_id,
-    product_name: selectedProduct.product_name,
-    quantity: qty,
-    unit_price: price,
-    discount: discount,
-    total_amount: total,
-    cost_total: cost,
-    profit: profit,
-    payment_method: payment,
-    customer_phone: phone || null,
-    customer_type: customerType,
-    created_at: now.toISOString(),
-  };
+  try {
+    const transaction = {
+      date: now.toISOString().slice(0, 10),
+      time: now.toTimeString().slice(0, 5),
+      day_of_week: now.toLocaleDateString('en-US', { weekday: 'long' }),
+      month: now.toLocaleDateString('en-US', { month: 'long' }),
+      item_count: cart.length,
+      total_units: cart.reduce((s, c) => s + c.quantity, 0),
+      discount: discount,
+      total_amount: total,
+      cost_total: costTotal,
+      profit: profitTotal,
+      payment_method: payment,
+      customer_phone: phone || null,
+      customer_type: customerType,
+      created_at: now.toISOString(),
+    };
 
-  await put('transactions', transaction);
+    const transactionId = await put('transactions', transaction);
 
-  // Update stock
-  selectedProduct.stock_quantity -= qty;
-  await put('products', selectedProduct);
+    // One transaction_item row per product in the cart
+    for (const item of cart) {
+      const itemDiscount = item.quantity * item.unit_price * discountRatio;
+      const itemTotal = (item.quantity * item.unit_price) - itemDiscount;
+      const itemCost = item.quantity * item.cost_price;
+
+      await put('transaction_items', {
+        transaction_id: transactionId,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        line_discount: Math.round(itemDiscount * 100) / 100,
+        line_total: Math.round(itemTotal * 100) / 100,
+        line_profit: Math.round((itemTotal - itemCost) * 100) / 100,
+        date: transaction.date,
+        time: transaction.time,
+        payment_method: payment,
+        customer_phone: phone || null,
+        customer_type: customerType,
+      });
+
+      // Update stock
+      const p = products.find(p => p.product_id === item.product_id);
+      p.stock_quantity -= item.quantity;
+      await put('products', p);
+    }
+  } catch (err) {
+    showToast('Could not save sale — storage error. Try again.', true);
+    console.error('Complete sale failed:', err);
+    return;
+  }
 
   // Refresh state
   transactions = await getAll('transactions');
+  transactionItems = await getAll('transaction_items');
   products = await getAll('products');
 
-  showToast(`Sale recorded — KSh ${total.toLocaleString()}`);
+  showToast(`Sale recorded — KSh ${total.toLocaleString()} (${cart.length} item${cart.length === 1 ? '' : 's'})`);
   resetSaleForm();
   updateRecordCount();
   renderProductsList();
@@ -794,13 +958,12 @@ document.getElementById('completeSaleBtn').addEventListener('click', async () =>
 });
 
 function resetSaleForm() {
-  productInput.value = '';
-  document.getElementById('priceInput').value = '';
-  document.getElementById('qtyInput').value = 1;
+  cart = [];
+  renderCart();
+  clearProductPicker();
   document.getElementById('discountInput').value = '';
   phoneInput.value = '';
   document.getElementById('customerHint').textContent = '';
-  selectedProduct = null;
   updateTotal();
   productInput.focus();
 }
@@ -826,27 +989,46 @@ document.getElementById('clearFiltersBtn').addEventListener('click', () => {
   renderRecords();
 });
 
-function getFilteredTransactions() {
+function getFilteredItems() {
   const fProduct = document.getElementById('filterProduct').value;
   const fPayment = document.getElementById('filterPayment').value;
   const fDate = document.getElementById('filterDate').value;
-  return transactions
-    .filter(t => !fProduct || t.product_name === fProduct)
-    .filter(t => !fPayment || t.payment_method === fPayment)
-    .filter(t => !fDate || t.date === fDate)
+  // Filter at the item level — this is what makes "filter by product"
+  // correctly find a sale even when that product was bought alongside others.
+  return transactionItems
+    .filter(i => !fProduct || i.product_name === fProduct)
+    .filter(i => !fPayment || i.payment_method === fPayment)
+    .filter(i => !fDate || i.date === fDate);
+}
+
+// Groups filtered items back into one row per transaction, for the records table.
+function getFilteredTransactionRows() {
+  const items = getFilteredItems();
+  const txIds = [...new Set(items.map(i => i.transaction_id))];
+  return txIds
+    .map(id => {
+      const t = transactions.find(t => t.transaction_id === id);
+      if (!t) return null;
+      const allItemsForTx = transactionItems.filter(i => i.transaction_id === id);
+      return { ...t, items: allItemsForTx };
+    })
+    .filter(Boolean)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
 function renderRecords() {
-  const rows = getFilteredTransactions();
+  const rows = getFilteredTransactionRows();
   const tbody = document.getElementById('recordsBody');
   document.getElementById('recordsEmpty').style.display = rows.length ? 'none' : 'block';
-  tbody.innerHTML = rows.map(t => `
+  tbody.innerHTML = rows.map(t => {
+    const itemsLabel = t.items.map(i => `${escapeHtml(i.product_name)} ×${i.quantity}`).join(', ');
+    const totalQty = t.items.reduce((s, i) => s + i.quantity, 0);
+    return `
     <tr>
       <td>${t.date}</td>
       <td>${t.time}</td>
-      <td>${escapeHtml(t.product_name)} ×${t.quantity}</td>
-      <td>${t.quantity}</td>
+      <td>${itemsLabel}</td>
+      <td>${totalQty}</td>
       <td>KSh ${t.total_amount.toLocaleString()}</td>
       <td>${t.payment_method}</td>
       <td>
@@ -855,16 +1037,22 @@ function renderRecords() {
       </td>
       <td><button class="del-btn" data-id="${t.transaction_id}" title="Delete">✕</button></td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
   tbody.querySelectorAll('.del-btn').forEach(btn => {
     btn.addEventListener('click', () => confirmDeleteTransaction(parseInt(btn.dataset.id)));
   });
 }
 
 function confirmDeleteTransaction(id) {
-  showConfirm('Delete this sale?', 'This will permanently remove the record. This can\'t be undone.', async () => {
+  showConfirm('Delete this sale?', 'This will permanently remove the record and all its items. This can\'t be undone.', async () => {
     await deleteRecord('transactions', id);
+    const itemsToDelete = transactionItems.filter(i => i.transaction_id === id);
+    for (const item of itemsToDelete) {
+      await deleteRecord('transaction_items', item.item_id);
+    }
     transactions = await getAll('transactions');
+    transactionItems = await getAll('transaction_items');
     renderRecords();
     renderDashboard();
     updateRecordCount();
@@ -876,9 +1064,9 @@ function confirmDeleteTransaction(id) {
    EXPORT — CSV & JSON
    ════════════════════════════════════════════════════════ */
 document.getElementById('exportCsvBtn').addEventListener('click', () => {
-  const rows = getFilteredTransactions();
+  const rows = getFilteredItems();
   if (!rows.length) { showToast('No records to export', true); return; }
-  const headers = ['transaction_id','date','time','day_of_week','month','product_name','quantity','unit_price','discount','total_amount','cost_total','profit','payment_method','customer_phone','customer_type'];
+  const headers = ['transaction_id','date','time','product_name','quantity','unit_price','line_discount','line_total','line_profit','payment_method','customer_phone','customer_type'];
   const csvRows = [headers.join(',')];
   rows.forEach(t => {
     csvRows.push(headers.map(h => {
@@ -888,14 +1076,14 @@ document.getElementById('exportCsvBtn').addEventListener('click', () => {
     }).join(','));
   });
   downloadFile(csvRows.join('\n'), `dukalog_sales_${todayStr()}.csv`, 'text/csv');
-  showToast(`Exported ${rows.length} records to CSV`);
+  showToast(`Exported ${rows.length} line items to CSV`);
 });
 
 document.getElementById('exportJsonBtn').addEventListener('click', () => {
-  const rows = getFilteredTransactions();
+  const rows = getFilteredItems();
   if (!rows.length) { showToast('No records to export', true); return; }
   downloadFile(JSON.stringify(rows, null, 2), `dukalog_sales_${todayStr()}.json`, 'application/json');
-  showToast(`Exported ${rows.length} records to JSON`);
+  showToast(`Exported ${rows.length} line items to JSON`);
 });
 
 function downloadFile(content, filename, mime) {
@@ -950,10 +1138,11 @@ function renderDashboard() {
     document.getElementById('statPeakHour').textContent = label;
   }
 
-  // Best-selling products
+  // Best-selling products — read from transaction_items since a single
+  // transaction can now contain several different products
   const prodTotals = {};
-  transactions.forEach(t => {
-    prodTotals[t.product_name] = (prodTotals[t.product_name] || 0) + t.quantity;
+  transactionItems.forEach(i => {
+    prodTotals[i.product_name] = (prodTotals[i.product_name] || 0) + i.quantity;
   });
   const sortedProds = Object.entries(prodTotals).sort((a, b) => b[1] - a[1]).slice(0, 6);
   const maxQty = sortedProds[0]?.[1] || 1;
